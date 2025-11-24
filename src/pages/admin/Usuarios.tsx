@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { UserPlus, Users } from 'lucide-react';
+import { UserPlus, Users, Trash2 } from 'lucide-react';
 
 const Usuarios = () => {
   const [isVetDialogOpen, setIsVetDialogOpen] = useState(false);
@@ -119,6 +119,25 @@ const Usuarios = () => {
     },
     onError: (error: any) => {
       toast.error('Error al crear cliente: ' + error.message);
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await supabase.functions.invoke('delete-user', {
+        body: { userId },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => {
+      toast.success('Usuario eliminado exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['all-users'] });
+    },
+    onError: (error: any) => {
+      toast.error('Error al eliminar el usuario: ' + error.message);
     },
   });
 
@@ -268,6 +287,7 @@ const Usuarios = () => {
                   <TableHead>Nombre</TableHead>
                   <TableHead>Teléfono</TableHead>
                   <TableHead>Rol</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -279,6 +299,20 @@ const Usuarios = () => {
                       <TableCell>{user.phone || 'N/A'}</TableCell>
                       <TableCell>
                         {Array.isArray(userRoles) && userRoles[0]?.role && getRoleBadge(userRoles[0].role)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (window.confirm(`¿Estás seguro de que quieres eliminar a ${user.full_name}? Esta acción no se puede deshacer.`)) {
+                              deleteUserMutation.mutate(user.id);
+                            }
+                          }}
+                          disabled={deleteUserMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
