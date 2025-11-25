@@ -38,6 +38,7 @@ const Auth = () => {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'admin' | 'vet' | 'client'>('client');
+  const [adminCode, setAdminCode] = useState('');
   const navigate = useNavigate();
   const { getDashboardPath, loading: roleLoading } = useUserRole();
 
@@ -77,6 +78,17 @@ const Auth = () => {
         phone,
         role 
       });
+
+      if (validatedData.role === 'admin' && adminCode !== '1209') {
+        toast({
+          title: 'Código inválido',
+          description: 'El código de administrador es incorrecto.',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
       const redirectUrl = `${window.location.origin}/`;
 
       const { error } = await supabase.auth.signUp({
@@ -333,6 +345,21 @@ const Auth = () => {
                     <option value="admin">Administrador</option>
                   </select>
                 </div>
+                
+                {role === 'admin' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-code">Código de Administrador</Label>
+                    <Input
+                      id="admin-code"
+                      type="password"
+                      placeholder="Ingrese el código de seguridad"
+                      value={adminCode}
+                      onChange={(e) => setAdminCode(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
+
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Creando cuenta...' : 'Registrarse'}
                 </Button>

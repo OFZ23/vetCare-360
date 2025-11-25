@@ -1,19 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 serve(async (req) => {
-  // Check for POST method and authorization header
-  if (req.method !== "POST" || req.headers.get("authorization")?.split(" ")[1] !== Deno.env.get("SUPABASE_ANON_KEY")) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const { userId } = await req.json();
-
-  if (!userId) {
-    return new Response("User ID is required", { status: 400 });
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders })
   }
 
   try {
+    const { userId } = await req.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "User ID is required" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+
     // Create a Supabase client with the service role key
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -28,12 +36,12 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ message: "User deleted successfully" }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
     });
   }
