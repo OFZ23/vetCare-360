@@ -43,21 +43,38 @@ const VetDashboard = () => {
       const handleOAuthCode = async () => {
         setIsLinking(true);
         try {
-          const response = await supabase.functions.invoke('oauth-google', {
-            body: {
+          // Obtener el token de sesión actual
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (!session) {
+            throw new Error('No hay sesión activa');
+          }
+
+          // Usar fetch directo para enviar el header Authorization
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+          
+          const response = await fetch(`${supabaseUrl}/functions/v1/oauth-google`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': supabaseAnonKey
+            },
+            body: JSON.stringify({
               code,
               redirect_uri: window.location.origin + '/vet/dashboard'
-            }
+            })
           });
 
-          console.log('Respuesta completa de oauth-google:', response);
+          const result = await response.json();
+          console.log('Respuesta completa de oauth-google:', result);
 
-          if (response.error) {
-            console.error('Error en oauth-google:', response.error);
-            console.error('Data con detalles:', response.data);
+          if (!response.ok) {
+            console.error('Error en oauth-google:', result);
             // Limpiar el código incluso si falla para evitar reintentos
             setSearchParams({});
-            throw new Error(JSON.stringify(response.data || response.error.message));
+            throw new Error(result.error || result.details || 'Error desconocido');
           }
 
           toast.success('Google Calendar vinculado correctamente');
@@ -84,6 +101,8 @@ const VetDashboard = () => {
     }
 
     const redirectUri = window.location.origin + '/vet/dashboard';
+    
+    console.log('Redirect URI siendo enviado a Google:', redirectUri);
     
     const params = new URLSearchParams({
       client_id: clientId,
