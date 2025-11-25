@@ -298,6 +298,7 @@ export type Database = {
           id: string
           phone: string | null
           updated_at: string
+          google_refresh_token: string | null
         }
         Insert: {
           created_at?: string
@@ -305,6 +306,7 @@ export type Database = {
           id: string
           phone?: string | null
           updated_at?: string
+          google_refresh_token?: string | null
         }
         Update: {
           created_at?: string
@@ -312,6 +314,7 @@ export type Database = {
           id?: string
           phone?: string | null
           updated_at?: string
+          google_refresh_token?: string | null
         }
         Relationships: []
       }

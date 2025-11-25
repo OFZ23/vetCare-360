@@ -105,27 +105,58 @@ const Citas = () => {
   // Generate teleconference URL (Google Meet real)
 const generateTeleconferenceMutation = useMutation({
   mutationFn: async (appointment: any) => {
-    const { id, scheduled_for } = appointment;
+    const { id, scheduled_for, vet_id } = appointment;
 
     if (!scheduled_for) {
       throw new Error('La cita no tiene fecha/hora programada');
     }
 
-    const { data, error } = await supabase.functions.invoke('create-meet', {
-      body: {
-        appointmentId: id,
-        datetime: scheduled_for,
-      },
-    });
+    // Si la cita no tiene veterinario asignado, asignárselo al veterinario actual
+    const session = await supabase.auth.getSession();
+    const currentVetId = session.data.session?.user?.id;
 
-    if (error) {
-      console.error(error);
-      throw new Error(error.message || 'Error al generar la reunión');
+    if (!vet_id && currentVetId) {
+      const { error: assignError } = await supabase
+        .from('appointments')
+        .update({ vet_id: currentVetId })
+        .eq('id', id);
+
+      if (assignError) {
+        console.error('Error asignando veterinario:', assignError);
+        throw new Error('No se pudo asignar el veterinario a la cita');
+      }
     }
 
-    const meetUrl = (data as any)?.url as string | undefined;
+    // Usar fetch directo para poder leer el error completo
+    const token = session.data.session?.access_token;
+
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-meet`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          appointmentId: id,
+          datetime: scheduled_for,
+        }),
+      }
+    );
+
+    const responseData = await response.json();
+    console.log('Respuesta completa de create-meet:', { status: response.status, data: responseData });
+
+    if (!response.ok) {
+      console.error('Error en create-meet:', responseData);
+      throw new Error(responseData.error || 'Error al generar la reunión');
+    }
+
+    const meetUrl = responseData.meetLink;
 
     if (!meetUrl) {
+      console.error('Data sin meetLink:', responseData);
       throw new Error('La función no devolvió la URL de la reunión');
     }
 

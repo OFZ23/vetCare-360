@@ -67,14 +67,67 @@ serve(async (req: Request) => {
     // Duración de 30 minutos
     const endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
 
+    // 1.1️⃣ Determinar qué Refresh Token usar (del veterinario o el global)
+    let targetRefreshToken = REFRESH_TOKEN;
+    let targetCalendarId = GOOGLE_CALENDAR_ID;
+
+    // Consultar quién es el veterinario de esta cita
+    const { data: appointmentData, error: appError } = await supabase
+      .from("appointments")
+      .select("vet_id")
+      .eq("id", appointmentId)
+      .single();
+
+    if (appError) {
+      console.error("Error obteniendo appointment:", appError);
+      return new Response(
+        JSON.stringify({ error: "No se pudo obtener información de la cita", details: appError.message }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    
+    if (!appointmentData?.vet_id) {
+      return new Response(
+        JSON.stringify({ error: "La cita no tiene veterinario asignado" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    
+    // Buscar si ese veterinario tiene su propio token
+    const { data: vetData, error: vetError } = await supabase
+      .from("profiles")
+      .select("google_refresh_token")
+      .eq("id", appointmentData.vet_id)
+      .single();
+
+    if (vetError) {
+      console.error("Error obteniendo perfil del veterinario:", vetError);
+      return new Response(
+        JSON.stringify({ error: "No se pudo obtener el perfil del veterinario", details: vetError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    
+    if (!vetData?.google_refresh_token) {
+      return new Response(
+        JSON.stringify({ error: "El veterinario no ha conectado su cuenta de Google Calendar. Por favor, haz clic en 'Conectar Google Calendar' en el Dashboard.", vetId: appointmentData.vet_id }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    
+    console.log("Usando token del veterinario:", appointmentData.vet_id);
+    targetRefreshToken = vetData.google_refresh_token;
+    targetCalendarId = "primary";
+
     // 1️⃣ Obtener access_token con el refresh token
+    console.log("Intentando obtener access_token con refresh_token...");
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        refresh_token: REFRESH_TOKEN,
+        refresh_token: targetRefreshToken,
         grant_type: "refresh_token",
       }),
     });
@@ -83,7 +136,11 @@ serve(async (req: Request) => {
       const text = await tokenRes.text();
       console.error("Error al obtener token de Google:", text);
       return new Response(
-        JSON.stringify({ error: "No se pudo obtener access_token de Google" }),
+        JSON.stringify({ 
+          error: "No se pudo obtener access_token de Google", 
+          details: text,
+          usingVetToken: targetRefreshToken !== REFRESH_TOKEN 
+        }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -91,37 +148,43 @@ serve(async (req: Request) => {
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
       return new Response(
-        JSON.stringify({ error: "Respuesta de Google sin access_token" }),
+        JSON.stringify({ error: "Respuesta de Google sin access_token", details: tokenData }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
+    console.log("Access token obtenido. Creando evento en calendario:", targetCalendarId);
+
     // 2️⃣ Crear evento en Google Calendar con Meet
+    const eventBody = {
+      summary: `Cita #${appointmentId}`,
+      start: {
+        dateTime: startDate.toISOString(),
+        timeZone: "America/Bogota",
+      },
+      end: {
+        dateTime: endDate.toISOString(),
+        timeZone: "America/Bogota",
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: crypto.randomUUID(),
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
+    };
+
+    console.log("Enviando evento a Google:", JSON.stringify(eventBody));
+
     const eventRes = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events?conferenceDataVersion=1`,
+      `https://www.googleapis.com/calendar/v3/calendars/${targetCalendarId}/events?conferenceDataVersion=1`,
       {
         method: "POST",
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          summary: `Cita #${appointmentId}`,
-          start: {
-            dateTime: startDate.toISOString(),
-            timeZone: "America/Bogota",
-          },
-          end: {
-            dateTime: endDate.toISOString(),
-            timeZone: "America/Bogota",
-          },
-          conferenceData: {
-            createRequest: {
-              requestId: crypto.randomUUID(),
-              conferenceSolutionKey: { type: "hangoutsMeet" },
-            },
-          },
-        }),
+        body: JSON.stringify(eventBody),
       },
     );
 
@@ -130,7 +193,11 @@ serve(async (req: Request) => {
     if (!eventRes.ok) {
       console.error("Error al crear evento de Google Calendar:", eventBodyText);
       return new Response(
-        JSON.stringify({ error: "Error creando evento en Google Calendar" }),
+        JSON.stringify({ 
+          error: "Error creando evento en Google Calendar", 
+          details: eventBodyText,
+          calendarId: targetCalendarId
+        }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -179,7 +246,10 @@ serve(async (req: Request) => {
     console.error(err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ 
+        error: message,
+        stack: err instanceof Error ? err.stack : null
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }

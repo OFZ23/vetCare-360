@@ -5,16 +5,97 @@ import { StatCard } from '@/components/StatCard';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, PawPrint, Clock, CheckCircle2, Video } from 'lucide-react';
+import { Calendar, PawPrint, Clock, CheckCircle2, Video, Link as LinkIcon } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 const VetDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [isLinking, setIsLinking] = useState(false);
+
+  // Verificar si ya tiene token
+  const { data: hasGoogleToken, refetch: refetchTokenStatus } = useQuery({
+    queryKey: ['has-google-token', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('google_refresh_token')
+        .eq('id', user?.id)
+        .single();
+      
+      if (error) return false;
+      return !!(data as any)?.google_refresh_token;
+    },
+    enabled: !!user?.id
+  });
+
+  // Manejar el retorno de Google OAuth
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code && user && !isLinking) {
+      const handleOAuthCode = async () => {
+        setIsLinking(true);
+        try {
+          const response = await supabase.functions.invoke('oauth-google', {
+            body: {
+              code,
+              redirect_uri: window.location.origin + '/vet/dashboard'
+            }
+          });
+
+          console.log('Respuesta completa de oauth-google:', response);
+
+          if (response.error) {
+            console.error('Error en oauth-google:', response.error);
+            console.error('Data con detalles:', response.data);
+            // Limpiar el código incluso si falla para evitar reintentos
+            setSearchParams({});
+            throw new Error(JSON.stringify(response.data || response.error.message));
+          }
+
+          toast.success('Google Calendar vinculado correctamente');
+          // Limpiar el código de la URL
+          setSearchParams({});
+          refetchTokenStatus();
+        } catch (error: any) {
+          console.error('Error vinculando Google:', error);
+          toast.error('Error al vincular Google Calendar: ' + (error.message || 'Error desconocido'));
+        } finally {
+          setIsLinking(false);
+        }
+      };
+
+      handleOAuthCode();
+    }
+  }, [searchParams, user, isLinking, setSearchParams, refetchTokenStatus]);
+
+  const handleLinkGoogle = () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      toast.error('Falta configuración: VITE_GOOGLE_CLIENT_ID');
+      return;
+    }
+
+    const redirectUri = window.location.origin + '/vet/dashboard';
+    
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/calendar',
+      access_type: 'offline',
+      prompt: 'consent'
+    });
+    
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  };
 
   // Citas de hoy
   const { data: todayAppointments } = useQuery({
@@ -132,9 +213,20 @@ const VetDashboard = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-primary">Panel de Veterinario</h1>
-          <p className="text-muted-foreground mt-2">Gestiona tus citas y pacientes</p>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-primary">Panel de Veterinario</h1>
+            <p className="text-muted-foreground mt-2">Gestiona tus citas y pacientes</p>
+          </div>
+          <Button 
+            variant={hasGoogleToken ? "outline" : "default"}
+            onClick={handleLinkGoogle}
+            disabled={isLinking}
+            className={hasGoogleToken ? "border-green-500 text-green-600 hover:text-green-700 hover:bg-green-50" : ""}
+          >
+            {hasGoogleToken ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <LinkIcon className="mr-2 h-4 w-4" />}
+            {isLinking ? "Vinculando..." : hasGoogleToken ? "Google Calendar Conectado" : "Conectar Google Calendar"}
+          </Button>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
