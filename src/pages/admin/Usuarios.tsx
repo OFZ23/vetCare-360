@@ -74,7 +74,9 @@ const Usuarios = () => {
             phone: formData.phone,
             role: 'vet',
           },
-          emailRedirectTo: `${window.location.origin}/auth`,
+          emailRedirectTo: import.meta.env.PROD 
+            ? 'https://vetcare-360.online/auth' 
+            : `${window.location.origin}/auth`,
         },
       });
 
@@ -104,7 +106,9 @@ const Usuarios = () => {
             phone: formData.phone,
             role: 'client',
           },
-          emailRedirectTo: `${window.location.origin}/auth`,
+          emailRedirectTo: import.meta.env.PROD 
+            ? 'https://vetcare-360.online/auth' 
+            : `${window.location.origin}/auth`,
         },
       });
 

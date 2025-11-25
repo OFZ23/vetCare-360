@@ -89,7 +89,9 @@ const Auth = () => {
         return;
       }
 
-      const redirectUrl = `${window.location.origin}/`;
+      const redirectUrl = import.meta.env.PROD 
+        ? 'https://vetcare-360.online/' 
+        : `${window.location.origin}/`;
 
       const { error } = await supabase.auth.signUp({
         email: validatedData.email,
